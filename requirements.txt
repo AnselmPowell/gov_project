@@ -1,0 +1,25 @@
+Django
+djangorestframework
+django-cors-headers
+dj-database-url
+python-dotenv
+psycopg[binary]
+rav
+python-decouple
+gunicorn
+
+PyPDF2==3.0.1
+python-docx==0.8.11
+odfpy==1.4.1
+nltk==3.8.1
+requests==2.31.0
+
+
+
+# requirements.txt
+
+openai
+pandas
+psycopg[binary]
+pgvector
+python-dotenv
