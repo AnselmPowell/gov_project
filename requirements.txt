@@ -23,3 +23,7 @@ pandas
 psycopg[binary]
 pgvector
 python-dotenv
+python-docx
+odfpy   
+
+pymupdf

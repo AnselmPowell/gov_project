@@ -8,4 +8,5 @@ urlpatterns = [
     path('api/', include('api.urls')),
     path('api/document/', include('document_analysis.urls')),
     path('api/vector/', include('vector_store.urls')),
+    path('api/governance/', include('governance_analysis.urls')),
 ]

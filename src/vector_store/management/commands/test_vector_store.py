@@ -9,3 +9,6 @@ class Command(BaseCommand):
         self.stdout.write('Starting vector store test...')
         run_test()
         self.stdout.write(self.style.SUCCESS('Test completed'))
+
+
+

@@ -27,6 +27,8 @@ ALLOWED_HOSTS = app_config['ALLOWED_HOSTS']
 # Make sure OpenAI API key is set
 OPENAI_API_KEY = config('OPENAI_API_KEY', default='')
 
+LLAMA_PARSE_KEY = config('LLAMA_PARSE_KEY', default='')
+
 
 
 CSRF_TRUSTED_ORIGINS = [
@@ -51,7 +53,10 @@ INSTALLED_APPS = [
     'document_analysis',
     'vector_store',
     'pgvector',
+     'governance_analysis',
 ]
+
+
 
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
@@ -104,6 +109,22 @@ VECTOR_STORE = {
 
     'INDEX_TYPE': 'ivfflat',
     'SEARCH_THRESHOLD': 0.8,
+}
+
+# Governance-specific settings
+GOVERNANCE_SETTINGS = {
+    'MAX_DOCUMENTS': 3,
+    'CHUNK_SIZE': 1000,
+    'OVERLAP_SIZE': 200,
+    'SUPPORTED_FORMATS': ['pdf', 'docx', 'txt']
+}
+
+# Monitoring settings
+MONITORING_SETTINGS = {
+    'LOG_LEVEL': 'INFO',
+    'ENABLE_PERFORMANCE_TRACKING': True,
+    'ENABLE_RICH_LOGGING': True,
+    'TRACK_DOCUMENT_METRICS': True
 }
 
 # DATABASES = {
