@@ -4,7 +4,10 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
+from functools import partial
 from django.db import transaction
+from asgiref.sync import sync_to_async
+import asyncio
 
 from .models import GovernanceDocument, BestPractice, ProcessingLog
 from .services.document_processor import GovernanceDocumentProcessor
@@ -13,7 +16,6 @@ from .services.best_practice_extractor import BestPracticeExtractor
 from .services.theme_analyzer import ThemeAnalyzer
 from .services.vector_store import VectorStore
 from .services.monitoring.system_monitor import SystemMonitor, ProcessStage
-
 
 
 @method_decorator(csrf_exempt, name='dispatch')
@@ -26,165 +28,129 @@ class GovernanceAnalysisViewSet(viewsets.ViewSet):
 
     @action(detail=False, methods=['POST'])
     def analyze_documents(self, request):
+        """Synchronous wrapper for async document analysis"""
         print("\n[analyze_documents] Starting document analysis")
-        print(f"[analyze_documents] Request data: {request.data}")
-
-        # Extract data from request
-        file_name = request.data.get('file_name')
-        file_url = request.data.get('file_url')
-        file_id = request.data.get('file_id')
-        file_type = request.data.get('file_type')
-        file_size = len(file_url.encode('utf-8')) 
-
-        if not all([file_url, file_id, file_type]):
-            print("[analyze_documents] ERROR: Missing required fields")
-            return Response(
-                {
-                    'status': 'error',
-                    'message': 'Missing required fields'
-                },
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        with transaction.atomic():
-            # Create document record
-            document = GovernanceDocument.objects.create(
-                pinata_id=file_id,
-                url=file_url,
-                filename=file_name,
-                mime_type=file_type,
-                file_size=file_size
-            )
-
-            # Initialize services
-            processor = GovernanceDocumentProcessor(self.monitor)
-            extractor = BestPracticeExtractor(self.monitor)
-            analyzer = ThemeAnalyzer(self.monitor)
-            vector_store = VectorStore(self.monitor)
-            summariser = DocumentSummarizer(self.monitor)
-
-            
-            # Process document
-            with self.monitor.stage(ProcessStage.PARSE):
-                process_result = processor.process_document(document)
-                chunks = process_result['chunks']
-                
-
-                # Generate document summary from first chunk
-                if chunks:
-                    summary = summariser.generate_summary(chunks[0].text)
-                    print(f"[analyze_documents] Document summary generated: {summary}")
-                    print(f"[analyze_documents] Partner Name: {summary['sport_name']}")
-    
-
-            best_practices_data = []
         
-            with self.monitor.stage(ProcessStage.EXTRACT):
-                for chunk in chunks:
-                    practices = extractor.process_chunk(chunk, summary)  # Now returns list
-                    if practices:
-                        for practice in practices:  # Handle multiple practices
-                            practice = analyzer.analyze_practice(practice)
-                            vector_store.store_practice(practice)
-                            
-                            # Updated practice details collection
-                            best_practices_data.append({
-                                'text': practice.text,
-                                'context': practice.context,
-                                'impact': practice.impact,
-                                'page_number': practice.page_number,
-                                'keywords': practice.keywords,
-                                'themes': practice.themes,
-                                'confidence_score': practice.confidence_score,
-                                # 'practice_type': practice.practice_type,  # New field
-                                # 'category': practice.category,  # New field
-                                # 'evidence': practice.evidence,  # New field
-                                # 'criteria_met': practice.criteria_met  # New field
-                            })
+        async def _async_analyze():
+            files_data = request.data if isinstance(request.data, list) else [request.data]
+            results = []
+            all_shared_themes = set()
+            all_shared_keywords = set()
 
-            # Update document status
-            document.processed_status = 'COMPLETED'
-            document.save()
+            try:
+                for file_data in files_data:
+                    # Extract data from request
+                    file_name = file_data.get('file_name')
+                    file_url = file_data.get('file_url')
+                    file_id = file_data.get('file_id')
+                    file_type = file_data.get('file_type')
+                    
+                    if not all([file_url, file_id, file_type]):
+                        return Response(
+                            {
+                                'status': 'error',
+                                'message': f'Missing required fields for file {file_name}'
+                            },
+                            status=status.HTTP_400_BAD_REQUEST
+                        )
 
-            # Prepare response with requested data
-            result = {
-                'status': 'success',
-                'document': {
-                    'id': str(document.id),
-                    'filename': document.filename,
-                    'file_size': document.file_size,
-                    'upload_date': document.upload_date.isoformat(),
-                    'total_pages': document.total_pages,
-                },
-                'best_practices': best_practices_data,
-                'processing_details': {
-                    'total_practices_found': len(best_practices_data),
-                    'unique_themes': len(set().union(*[set(p['themes']) for p in best_practices_data])) if best_practices_data else 0,
-                }
-            }
+                    file_size = len(file_url.encode('utf-8'))
 
-            print(f"[analyze_documents] Returning result with {len(best_practices_data)} practices")
-            print(f"\n \n [analyze_documents] Final Results Returned {result} \n  \n")
-            return Response(result)
+                    # Create document record
+                    document = await sync_to_async(GovernanceDocument.objects.create)(
+                        pinata_id=file_id,
+                        url=file_url,
+                        filename=file_name,
+                        mime_type=file_type,
+                        file_size=file_size
+                    )
 
-    @action(detail=False, methods=['GET'])
-    def search_practices(self, request):
-        print("\n[search_practices] Starting practice search")
-        query = request.query_params.get('query', '')
-        limit = int(request.query_params.get('limit', 5))
+                    # Initialize services
+                    processor = GovernanceDocumentProcessor(self.monitor)
+                    extractor = BestPracticeExtractor(self.monitor)
+                    analyzer = ThemeAnalyzer(self.monitor)
+                    vector_store = VectorStore(self.monitor)
+                    summariser = DocumentSummarizer(self.monitor)
+                    
+                    # Process document
+                    process_result = await sync_to_async(processor.process_document)(document)
+                    chunks = process_result['chunks']
 
-        vector_store = VectorStore(self.monitor)
-        practices = vector_store.find_similar(query=query, limit=limit)
+                    if chunks:
+                        summary = await sync_to_async(summariser.generate_summary)(chunks[0].text)
+                        print(f"[analyze_documents] Generated summary for {file_name}")
+                      
 
-        response_data = {
-            'status': 'success',
-            'practices': [
-                {
-                    'text': p.text,
-                    'context': p.context,
-                    'impact': p.impact,
-                    'page_number': p.page_number,
-                    'keywords': p.keywords,
-                    'themes': p.themes,
-                    'confidence_score': p.confidence_score
-                }
-                for p in practices
-            ]
-        }
+                    best_practices_data = []
+                    document_themes = set()
+                    document_keywords = set()
 
-        return Response(response_data)
+                    for chunk in chunks:
+                        practices = await sync_to_async(extractor.process_chunk)(chunk, summary)
+                        if practices:
+                            for practice in practices:
+                                # Process each practice
+                                practice = await analyzer.analyze_practice(practice, summary, all_shared_themes, all_shared_keywords)
+                                await sync_to_async(vector_store.store_practice)(practice)
+                                print(f"[analyze_documents] Stored practice {practice.id}")
+                                
+                                # Track themes
+                                if practice.themes:
+                                    document_themes.update(practice.themes)
+                                    all_shared_themes.update(practice.themes)
 
-    @action(detail=False, methods=['GET'])
-    def search_practices(self, request):
-        print("\n[search_practices] Starting practice search")
-        query = request.query_params.get('query', '')
-        limit = int(request.query_params.get('limit', 5))
-        print(f"[search_practices] Query: {query}, Limit: {limit}")
+                                    document_keywords.update(practice.themes)
+                                    all_shared_keywords.update(practice.themes)
 
-        vector_store = VectorStore(self.monitor)
-        print("[search_practices] Vector store initialized")
+                                print(f"[analyze_documents] Themes: {practice.themes}")
+                                
+                                best_practices_data.append({
+                                    'text': practice.text,
+                                    'context': practice.context,
+                                    'impact': practice.impact,
+                                    'page_number': practice.page_number,
+                                    'keywords': practice.keywords,
+                                    'themes': practice.themes,
+                                    'confidence_score': practice.confidence_score,
+                                    'is_best_practice': practice.is_best_practice  # Add this line only
+                                })
 
-        practices = vector_store.find_similar(
-            query=query,
-            limit=limit
-        )
-        print(f"[search_practices] Found {len(practices)} similar practices")
+                    # Update document
+                    document.processed_status = 'COMPLETED'
+                    print(f"[analyze_documents] Updated document {document.id}")
+                    await sync_to_async(document.save)()
 
-        response_data = {
-            'status': 'success',
-            'practices': [
-                {
-                    'id': str(p.id),
-                    'text': p.text,
-                    'context': p.context,
-                    'impact': p.impact,
-                    'themes': p.themes,
-                    'keywords': p.keywords,
-                    'document': p.document.filename,
-                    'page': p.page_number
-                }
-                for p in practices
-            ]
-        }
-        print(f"[search_practices] Response prepared with {len(response_data['practices'])} practices")
-        return Response(response_data)
+                    results.append({
+                        'document': {
+                            'id': str(document.id),
+                            'filename': document.filename,
+                            'file_size': document.file_size,
+                            'upload_date': document.upload_date.isoformat(),
+                            'total_pages': document.total_pages,
+                        },
+                        'best_practices': best_practices_data,
+                        'document_themes': list(document_themes)
+                    })
+                print(f"[analyze_documents] Finished processing {len(results)} documents")
+                return Response({
+                    'status': 'success',
+                    'documents': results,
+                    'shared_themes_analysis': {
+                        'total_shared_themes': len(all_shared_themes),
+                        'shared_themes': list(all_shared_themes),
+                        'documents_processed': len(results)
+                    }
+                })
+
+            except Exception as e:
+                print(f"[analyze_documents] Error: {str(e)}")
+                return Response(
+                    {
+                        'status': 'error',
+                        'message': str(e)
+                    },
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+
+        # Run the async function in the sync world
+        return asyncio.run(_async_analyze())

@@ -5,11 +5,24 @@ from django.conf import settings
 import json
 import time
 from collections import Counter
-from ..models import BestPractice
+from asgiref.sync import sync_to_async
+
+from ..models import BestPractice, GovernanceDocument, SharedTheme, DocumentChunk, DocumentRelationship
 from .monitoring.system_monitor import ProcessStage, SystemMonitor
+from .document_summary import DocumentSummarizer
+
 
 from pydantic import BaseModel
 from typing import List
+
+GOVERNANCE_CONTEXT = """
+You are the Sport Wales goverance team partner reviewer. Your goal is to will be review and anaylye the partner's performance.
+The Sport Wales Governance Team is central to upholding the integrity, effectiveness, 
+and ethical standards of Sport Wales' funded partnerships and organizations known as partners. The team 
+ensures funded partners operate under robust governance frameworks that align with Sport 
+Wales' values of accountability, transparency, and continuous improvement. Goal is to review our partners performance.
+"""
+
 
 class ThemeAnalysisSchema(BaseModel):
     themes: List[str]
@@ -27,24 +40,40 @@ class ThemeAnalyzer:
         print("[ThemeAnalyzer] Initialization complete")
         print(f"[ThemeAnalyzer] Current known themes: {len(self.known_themes)}")
 
-    def _construct_theme_prompt(self, practice: BestPractice) -> str:
+    def _construct_theme_prompt(self, practice: BestPractice, summary: DocumentSummarizer, all_themes: Set[str], all_keywords: Set[str]) -> str:
         """Construct prompt with theme guidance"""
         print("\n[_construct_theme_prompt] Constructing theme analysis prompt")
-        top_themes = [theme for theme, _ in self.theme_frequency.most_common(5)]
+        top_themes = [all_themes for all_themes, _ in self.theme_frequency.most_common(5)]
         print(f"[_construct_theme_prompt] Top themes for context: {top_themes}")
         
         prompt = f"""
-        Common Themes: {json.dumps(top_themes)}
+
+        # Context: {GOVERNANCE_CONTEXT} \n####
         
-        Best Practice: {practice.text}
-        Context: {practice.context}
-        Impact: {practice.impact}
+        # Partner Name: {summary['sport_name']}
+        Partner {summary['sport_name']}  Background:
+        {summary['summary']}
+
+
+        Below is one of the practise from the Partner Report for {summary['sport_name']} partner. 
+        This section  of text contains the best practices and concerns identified by the Sport Wales Governance Team.
+        Pracitce Text: {practice.text} \n 
+        Context: {practice.context} \n
+        Impact: {practice.impact} \n
+
+        Below are some common themes found in OTHER partner reports:
+        Common Themes: {all_themes}
+        Common Keywords: {all_keywords}
+
         
-        Task: Analyze this best practice to identify:
-        1. Key governance themes (max 3) - Consider using existing themes if relevant
-        2. Specific keywords (max 5) that capture the core concepts
+        
+        Task: Analyze this practice text to identify:
+        1. Key governance themes (max 3) - Consider using existing themes if relevant as they are consistent across partner reports
+        2. Specific keywords (max 5) that capture the core concept, consider using existing keywords if relevant
         
         Ensure themes are consistent and keywords are specific.
+
+        return is a json format
         """
         print(f"[_construct_theme_prompt] Prompt constructed, length: {len(prompt)}")
         return prompt
@@ -56,7 +85,7 @@ class ThemeAnalyzer:
         print(f"[_get_cache_key] Generated key: {key}")
         return key
 
-    def analyze_practice(self, practice: BestPractice) -> Dict:
+    async def analyze_practice(self, practice: BestPractice, summary: DocumentSummarizer, all_themes: Set[str], all_keywords: Set[str]) -> Dict:
         """Analyze practice with caching and theme consistency"""
         print(f"\n[analyze_practice] Starting analysis for practice ID: {practice.id}")
         start_time = time.time()
@@ -89,10 +118,10 @@ class ThemeAnalyzer:
 
             print("[analyze_practice] Sending request to GPT-4")
             response = self.llm.chat.completions.create(
-                model="gpt-4o-mini",
+                model="gpt-3.5-turbo-0125",
                 messages=[{
                     "role": "system",
-                    "content": self._construct_theme_prompt(practice)
+                    "content": self._construct_theme_prompt(practice,  summary, all_themes, all_keywords)
                 }],
                 temperature=0.3,
                 functions=[function_schema],
@@ -118,7 +147,7 @@ class ThemeAnalyzer:
             practice.themes = analysis['themes']
             practice.keywords = analysis['keywords']
             practice.analysis_time = analysis_time
-            practice.save()
+            await sync_to_async(practice.save)()
             print("[analyze_practice] Practice record updated")
 
             result = {
@@ -138,7 +167,10 @@ class ThemeAnalyzer:
                 self._cache.pop(next(iter(self._cache)))
 
             print("[analyze_practice] Analysis complete")
+
+            
             return practice
+            
 
     def get_theme_statistics(self) -> Dict:
         """Get theme usage statistics"""
@@ -150,3 +182,10 @@ class ThemeAnalyzer:
         }
         print(f"[get_theme_statistics] Statistics generated: {stats}")
         return stats
+    
+
+
+
+
+
+   

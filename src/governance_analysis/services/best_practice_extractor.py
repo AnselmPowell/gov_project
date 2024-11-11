@@ -1,3 +1,4 @@
+# src/governor/services/best_practice_extractor.py
 from typing import Dict, Optional, List, Union
 from openai import OpenAI
 from django.conf import settings
@@ -95,7 +96,7 @@ class BestPracticeExtractor:
         {summary['summary']}
 
 
-        Below is a chunck of text od document from the Partner Report for {summary['sport_name']} partner. 
+        Below is a chunck of the text document from the Partner Report for {summary['sport_name']} partner. 
         Document Text: {text}
 
         \n####
@@ -125,9 +126,9 @@ class BestPracticeExtractor:
         }}
         \n####
 
-        Return in the format:
+        Always Return your answer in the json format below: if criteria not met, return "criteria_met": False and practices/concerns as empty []
         {{
-            "criteria_met": true,
+            "criteria_met": True/False,
             "practices": [list of practices/concerns],
             "dominant_categories": ["main categories found"]
         }}
@@ -184,9 +185,9 @@ class BestPracticeExtractor:
             extraction_time = time.time() - start_time
             
             analysis_data = json.loads(content)
-            
+            print(f"[process_chunk] Analysis data meets criteria.......:" , analysis_data)
             # Skip if criteria not met
-            if not analysis_data.get('criteria_met', False):
+            if analysis_data['criteria_met'] == False:
                 print("[process_chunk] Chunk does not meet governance criteria")
                 return None
 
@@ -208,7 +209,8 @@ class BestPracticeExtractor:
                     extraction_time=extraction_time,
                     confidence_score=confidence_score,
                     keywords=practice_data.get("evidence", "").split(),
-                    themes=[practice_data.get("category", "")]
+                    themes=[practice_data.get("category", "")],
+                    is_best_practice=practice_data.get("is_best_practice", True)  # Added line
                 )
                 practices.append(practice)
 

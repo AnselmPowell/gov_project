@@ -103,30 +103,94 @@ class BestPractice(models.Model):
     document = models.ForeignKey(
         GovernanceDocument, 
         on_delete=models.CASCADE,
-        related_name='practices'  # Added for easier querying
+        related_name='practices'
     )
     text = models.TextField()
     page_number = models.IntegerField(db_index=True)
     context = models.TextField()
     impact = models.TextField()
     keywords = ArrayField(
-        models.CharField(max_length=200),  # Increased length
+        models.CharField(max_length=200),
         default=list,
-        null=True  # Allow null for error cases
+        null=True
     )
     themes = ArrayField(
-        models.CharField(max_length=200),  # Increased length
+        models.CharField(max_length=200),
         default=list,
-        null=True  # Allow null for error cases
+        null=True
     )
-    embedding = VectorField(dimensions=1536, null=True )
+    embedding = VectorField(dimensions=1536, null=True)
     extraction_time = models.FloatField(null=True)
     analysis_time = models.FloatField(null=True)
-    confidence_score = models.FloatField(null=True)  # Added for quality tracking
+    confidence_score = models.FloatField(null=True)
+    is_best_practice = models.BooleanField(default=True)  # Added field
     
     class Meta:
         db_table = 'best_practices'
         indexes = [
             models.Index(fields=['document', 'page_number']),
+            models.Index(fields=['confidence_score']),
+            models.Index(fields=['is_best_practice'])  # Added index
+        ]
+
+
+
+####
+
+class SharedTheme(models.Model):
+    """Track globally shared themes across documents"""
+    name = models.CharField(max_length=200, unique=True)
+    frequency = models.IntegerField(default=1)
+    first_seen = models.DateTimeField(auto_now_add=True)
+    last_seen = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        db_table = 'shared_themes'
+        ordering = ['-frequency']
+        indexes = [
+            models.Index(fields=['frequency']),
+            models.Index(fields=['name'])
+        ]
+
+class DocumentRelationship(models.Model):
+    """Track relationships between documents"""
+    source_document = models.ForeignKey(
+        GovernanceDocument,
+        on_delete=models.CASCADE,
+        related_name='source_relationships'
+    )
+    target_document = models.ForeignKey(
+        GovernanceDocument,
+        on_delete=models.CASCADE,
+        related_name='target_relationships'
+    )
+    shared_themes = models.ManyToManyField(SharedTheme)
+    relationship_strength = models.FloatField(
+        default=0.0,
+        help_text="Calculated based on number of shared themes"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        db_table = 'document_relationships'
+        unique_together = ['source_document', 'target_document']
+        indexes = [
+            models.Index(fields=['relationship_strength'])
+        ]
+
+class ThemeOccurrence(models.Model):
+    """Track where themes appear in documents"""
+    theme = models.ForeignKey(SharedTheme, on_delete=models.CASCADE)
+    document = models.ForeignKey(GovernanceDocument, on_delete=models.CASCADE)
+    chunk = models.ForeignKey(DocumentChunk, on_delete=models.CASCADE)
+    text_excerpt = models.TextField(
+        help_text="Relevant text excerpt where theme appears"
+    )
+    confidence_score = models.FloatField(default=0.0)
+    
+    class Meta:
+        db_table = 'theme_occurrences'
+        indexes = [
+            models.Index(fields=['theme', 'document']),
             models.Index(fields=['confidence_score'])
         ]

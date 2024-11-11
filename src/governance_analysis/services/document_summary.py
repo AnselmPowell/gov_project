@@ -64,7 +64,7 @@ class DocumentSummarizer:
             }
 
             response = self.llm.chat.completions.create(
-                model="gpt-4o-mini",
+                model="gpt-3.5-turbo-0125",
                 messages=[{
                     "role": "system",
                     "content": self._construct_prompt(text)

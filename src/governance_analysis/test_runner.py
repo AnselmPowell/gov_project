@@ -115,7 +115,7 @@ class GovernanceTestRunner:
             """
 
             response = await self.llm.chat.completions.create(
-                model="gpt-4o-mini",
+                model="gpt-3.5-turbo-0125",
                 messages=[{
                     "role": "system",
                     "content": prompt
@@ -168,7 +168,7 @@ class GovernanceTestRunner:
             """
 
             response = await self.llm.chat.completions.create(
-                model="gpt-4o-mini",
+                model="gpt-3.5-turbo-0125",
                 messages=[{
                     "role": "system",
                     "content": prompt
